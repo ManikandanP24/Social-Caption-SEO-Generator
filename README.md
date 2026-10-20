@@ -1,99 +1,80 @@
-# CaptionCraft AI — Social Caption & SEO Generator
+# CaptionCraft AI — Free Social Caption & SEO Generator
 
-Turn one idea, script, or image into platform-ready content for Instagram, Facebook, YouTube, and LinkedIn.
+Generate social media copy for Instagram, Facebook, YouTube, and LinkedIn using free open-source models that run locally in your browser. **No Anthropic key, no paid AI API, and no account with an AI provider is required.**
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/ManikandanP24/Social-Caption-SEO-Generator)
 
-**Quick deploy:** Click the button, sign in to Render, review the Blueprint, and provide your own `ANTHROPIC_API_KEY` when prompted. Render will build and publish the app and show you its public `onrender.com` URL. A public URL is not created until you approve deployment and the build finishes.
+**Deploy:** Sign in to Render, review the Blueprint, and approve deployment. The app does not require any AI API secret. Render will show the public URL when the service is deployed.
 
 ## Features
 
-- **Multi-input generator:** describe the post, paste a script/transcript, and/or upload an image.
+- **Multi-input generator:** provide an idea, paste a script/transcript, and/or upload an image.
 - **Platform-aware outputs:** Instagram/Facebook hooks, captions, SEO keywords, hashtags, CTA and alt text; YouTube titles, description, tags and pinned comment; LinkedIn hook, post, hashtags and closing question.
-- **Editable results:** edit generated fields, copy individual fields or copy a platform's content, and regenerate an individual field.
+- **Editable results:** edit generated fields, copy individual fields or a platform's content, and regenerate individual fields.
+- **Image captions on device:** a local image-captioning model summarizes uploads; verify the output, especially product names, prices, logos and small text.
 - **Creator profile:** save brand name, niche, audience, tone, language, fixed hashtags and preferred CTA.
 - **History:** search generations, mark favorites, reload and edit previous results.
 - **Character warnings:** counters and warnings for key platform limits.
-- **Server-side AI credentials:** Claude API requests run through Express; the key is not placed in browser code.
+- **Private and keyless AI:** text generation uses WebLLM and image captions use Transformers.js in your browser; prompts/images are not sent to an AI API.
 - **Responsive UI:** desktop and mobile layouts.
+
+## Important: first use
+
+This is a **free on-device model, not the hosted ChatGPT service**. The browser downloads the open models the first time you use text generation and image captioning; this can take a while and may use hundreds of megabytes or more of storage. Subsequent runs may use the browser cache. Text generation requires a WebGPU-compatible browser and a reasonably capable device. Recent Chrome or Edge on supported hardware is a good starting point. The smaller local model may be less capable than hosted ChatGPT models, and its claims and SEO recommendations should be checked before publishing.
 
 ## Tech stack
 
 - Frontend: React 18, Vite, Lucide React
-- Backend: Node.js, Express, Multer
-- AI: Anthropic Claude API
+- Browser-local language model: WebLLM using Llama-3.2-1B-Instruct-q4f16_1-MLC
+- Browser-local image captioning: Transformers.js using Xenova/vit-gpt2-image-captioning
+- Static web server: Node.js and Express
 - Local persistence: browser localStorage for the brand profile and generation history
 
-> History and profile data are currently stored in the browser used to access the app. Supabase authentication/cloud sync are not configured in this version.
+History and profile data are stored in the browser in use; they are not synced to a cloud account.
 
 ## Requirements
 
 - Node.js 20 or newer recommended
-- An Anthropic API key with access to the configured Claude model
+- A modern browser with WebGPU support for local language generation
+- Internet access on first use to download the open models
+
+No API key or .env file is required for AI.
 
 ## Run locally
 
-1. Clone the repository and enter its directory:
+1. Clone the repository:
 
-   ```bash
-   git clone https://github.com/ManikandanP24/Social-Caption-SEO-Generator.git
-   cd Social-Caption-SEO-Generator
-   ```
+       git clone https://github.com/ManikandanP24/Social-Caption-SEO-Generator.git
+       cd Social-Caption-SEO-Generator
 
-2. Install root dependencies and the frontend/backend dependencies:
+2. Install dependencies:
 
-   ```bash
-   npm install
-   npm install --prefix client
-   npm install --prefix server
-   ```
+       npm install
+       npm install --prefix client
+       npm install --prefix server
 
-3. Create your backend environment file:
+3. Start both the frontend and the static API/status server:
 
-   ```bash
-   cp server/.env.example server/.env
-   ```
+       npm run dev
 
-   Edit `server/.env`:
+4. Open the Vite URL shown in the terminal, usually http://localhost:5173.
 
-   ```env
-   ANTHROPIC_API_KEY=your_anthropic_api_key_here
-   CLAUDE_MODEL=claude-sonnet-5-5
-   PORT=3001
-   ```
+## Commands
 
-   Keep this file private. It is covered by `.gitignore`; do not commit API keys.
+    npm run dev       # start frontend and local web server
+    npm run build     # build frontend assets for production
+    npm start         # serve the built frontend
 
-4. Run the frontend and backend together:
+## Deployment
 
-   ```bash
-   npm run dev
-   ```
+The included render.yaml deploys the client and server as a single Render web service. No provider secret is required. After deploying, use the public URL assigned by Render. The free Render tier may spin down after inactivity, causing a delay on the next visit.
 
-5. Open the Vite URL shown in your terminal, usually [http://localhost:5173](http://localhost:5173).
+## Notes
 
-The frontend calls the Express API through Vite's `/api` proxy. The backend health endpoint is `/api/health`.
-
-## Useful commands
-
-```bash
-npm run dev       # start frontend and backend
-npm run build     # build the frontend for production
-npm start         # start the backend API
-```
-
-## API routes
-
-- `GET /api/health` — backend readiness and API-key configuration status
-- `POST /api/generate` — generate platform content; accepts multipart form data, including an optional image
-- `POST /api/regenerate-field` — regenerate one result field
-
-## Important notes
-
-- Review output before publishing. Verify factual claims, links, timestamps, and any platform-specific requirements.
-- Generated alt text should be checked against the actual image.
+- Review AI outputs before publishing, especially factual details, tags, alt text, timestamps and links.
+- The local image captioner produces a short scene description; it may not read on-image text reliably.
 - Image uploads support PNG, JPEG, WebP and GIF up to 10 MB.
-- Cloud-based user accounts, cloud history sync, publishing/scheduling, and production deployment are not included yet.
+- Authentication, cross-device history sync, publishing/scheduling and cloud database storage are not included yet.
 
 ## License
 
