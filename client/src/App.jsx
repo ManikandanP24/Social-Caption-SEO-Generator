@@ -69,6 +69,10 @@ export default function App() {
   useEffect(() => { localStorage.setItem('captioncraft.profile', JSON.stringify(profile)); }, [profile]);
   useEffect(() => { localStorage.setItem('captioncraft.history', JSON.stringify(history)); }, [history]);
   useEffect(() => {
+    if (!activeHistoryId || !generated) return;
+    setHistory((items) => items.map((item) => item.id === activeHistoryId ? { ...item, result: generated, context, script, platforms: selectedPlatforms, inputs: { ...item.inputs, platforms: selectedPlatforms, niche: profile.niche, tone: profile.tone, language: profile.language, audience: profile.audience, context, script, brandProfile: profilePayload() } } : item));
+  }, [generated, activeHistoryId, context, script, selectedPlatforms, profile]);
+  useEffect(() => {
     fetch('/api/health').then((res) => res.json()).then((data) => setApiStatus(data.configured ? 'ready' : 'missing-key')).catch(() => setApiStatus('offline'));
   }, []);
   useEffect(() => {
@@ -127,7 +131,8 @@ export default function App() {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Generation failed. Please try again.');
       setGenerated(data.result);
-      setActivePlatform(availablePlatforms.find((platform) => data.result?.[platform.key])?.key || data.result?.instagram_facebook ? 'instagram_facebook' : (inputs.platforms[0] || 'youtube'));
+      const firstAvailablePlatform = availablePlatforms.find((platform) => data.result?.[platform.key])?.key;
+      setActivePlatform(firstAvailablePlatform || (data.result?.instagram_facebook ? 'instagram_facebook' : (inputs.platforms[0] || 'youtube')));
       saveGeneration(data.result, inputs, image?.name || '');
       setPage('results');
       showToast('Your content is ready');
@@ -140,7 +145,6 @@ export default function App() {
     const value = parseField(raw, isArray);
     setGenerated((old) => {
       const next = { ...old, [platformKey]: { ...old?.[platformKey], [field]: value } };
-      if (activeHistoryId) setHistory((items) => items.map((item) => item.id === activeHistoryId ? { ...item, result: next } : item));
       return next;
     });
   };
