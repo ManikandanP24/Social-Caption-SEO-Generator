@@ -187,6 +187,16 @@ Keep the requested language/tone and platform character limits. Avoid inventing 
   }
 });
 
+// Serve the built Vite frontend from this same service in production.
+const clientDist = path.resolve(__dirname, '../client/dist');
+app.use(express.static(clientDist));
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/')) return next();
+  res.sendFile(path.join(clientDist, 'index.html'), (error) => {
+    if (error) next(error);
+  });
+});
+
 app.use((err, _req, res, _next) => {
   console.error(err?.stack || err);
   if (err instanceof multer.MulterError) {
