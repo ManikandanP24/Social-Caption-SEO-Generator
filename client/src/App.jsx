@@ -246,25 +246,41 @@ export default function App() {
     const operation = platformKey + '.' + field.key;
     setRegenerating(operation); setError('');
     try {
-      const response = await fetch('/api/regenerate-field', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          field: field.key, platformKey, currentValue: generated?.[platformKey]?.[field.key],
-          existingResult: generated, inputs: { ...currentInputs(), platforms: selectedPlatforms },
-        }),
+      const engine = await ensureLocalEngine();
+      const request = [
+        'Regenerate exactly one field from this social media content project.',
+        'Return ONLY valid JSON matching {"value":"new text"} or {"value":["item 1","item 2"]}.',
+        'Do not add markdown fences or any additional properties.',
+        'Platform: ' + (PLATFORMS.find((item) => item.key === platformKey)?.label || platformKey),
+        'Field: ' + field.key,
+        'Current value: ' + JSON.stringify(generated?.[platformKey]?.[field.key]),
+        'Creator inputs: ' + JSON.stringify({ ...currentInputs(), platforms: selectedPlatforms }),
+        'Existing output for context: ' + JSON.stringify(generated?.[platformKey] || {}),
+        'Keep requested language, tone, platform character limits, and source facts. Produce a better alternative without inventing details.',
+      ].join('\n');
+      const completion = await engine.chat.completions.create({
+        messages: [
+          { role: 'system', content: 'You are a social media copywriter. Follow the user instructions and preserve facts. Return only valid JSON.' },
+          { role: 'user', content: request },
+        ],
+        temperature: 0.7,
+        max_tokens: 700,
+        response_format: { type: 'json_object' },
       });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Could not regenerate this field.');
+      const parsed = parseLocalJson(completion.choices?.[0]?.message?.content);
+      let value = parsed?.value;
+      if (value === undefined) value = parsed?.[field.key];
+      if (value === undefined) throw new Error('The local model did not return the requested field. Try again.');
       setGenerated((old) => {
-        const next = { ...old, [platformKey]: { ...old?.[platformKey], [field.key]: data.value } };
+        const next = { ...old, [platformKey]: { ...old?.[platformKey], [field.key]: value } };
         return next;
       });
-      showToast(field.label + ' regenerated');
-    } catch (requestError) { setError(requestError.message || 'Regeneration failed.'); }
+      showToast(field.label + ' regenerated locally');
+    } catch (requestError) { setError(requestError.message || 'Local regeneration failed.'); }
     finally { setRegenerating(''); }
   };
 
-  const copyText = async (text, label = 'Copied to clipboard') => {
+    const copyText = async (text, label = 'Copied to clipboard') => {
     try { await navigator.clipboard.writeText(text || ''); showToast(label); }
     catch { setError('Clipboard access failed. Select the text and copy it manually.'); }
   };
