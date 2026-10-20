@@ -1,0 +1,14 @@
+{
+  "name": "social-caption-seo-generator",
+  "private": true,
+  "version": "1.0.0",
+  "description": "AI-powered social caption and SEO generator for Instagram, Facebook, YouTube, and LinkedIn.",
+  "scripts": {
+    "dev": "concurrently -k -n API,WEB -c cyan,green \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "build": "npm run build --prefix client",
+    "start": "npm run start --prefix server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
