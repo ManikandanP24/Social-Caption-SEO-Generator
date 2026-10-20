@@ -2,6 +2,10 @@
 
 Turn one idea, script, or image into platform-ready content for Instagram, Facebook, YouTube, and LinkedIn.
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/ManikandanP24/Social-Caption-SEO-Generator)
+
+**Quick deploy:** Click the button, sign in to Render, review the Blueprint, and provide your own `ANTHROPIC_API_KEY` when prompted. Render will build and publish the app and show you its public `onrender.com` URL. A public URL is not created until you approve deployment and the build finishes.
+
 ## Features
 
 - **Multi-input generator:** describe the post, paste a script/transcript, and/or upload an image.
