@@ -90,7 +90,7 @@ export default function App() {
     setHistory((items) => items.map((item) => item.id === activeHistoryId ? { ...item, result: generated, context, script, platforms: selectedPlatforms, inputs: { ...item.inputs, platforms: selectedPlatforms, niche: profile.niche, tone: profile.tone, language: profile.language, audience: profile.audience, context, script, brandProfile: profilePayload() } } : item));
   }, [generated, activeHistoryId, context, script, selectedPlatforms, profile]);
   useEffect(() => {
-    setApiStatus(typeof navigator !== 'undefined' && navigator.gpu ? 'ready' : 'unsupported');
+    setApiStatus('ready');
   }, []);
   useEffect(() => {
     if (!toast) return undefined;
@@ -133,30 +133,37 @@ export default function App() {
 
   const ensureLocalEngine = async () => {
     if (engineRef.current) return engineRef.current;
-    if (typeof navigator === 'undefined' || !navigator.gpu) {
-      throw new Error('Free on-device AI needs a WebGPU-compatible browser such as an up-to-date Chrome or Edge. No API key is used.');
-    }
     setApiStatus('loading');
-    setModelProgress({ text: 'Preparing the free AI model…', percent: 0 });
+    setModelProgress({ text: 'Preparing the free CPU-friendly AI model…', percent: 0 });
     try {
-      const { CreateMLCEngine } = await import('@mlc-ai/web-llm');
-      const engine = await CreateMLCEngine(LOCAL_MODEL_ID, {
-        initProgressCallback: (progress) => {
-          const percent = Math.max(0, Math.min(100, Math.round(Number(progress?.progress || 0) * 100)));
-          setModelProgress({ text: progress?.text || progress?.stage || 'Downloading local AI model…', percent });
+      const { pipeline } = await import('@huggingface/transformers');
+      const generator = await pipeline(
+        'text-generation',
+        'onnx-community/SmolLM2-360M-Instruct-ONNX',
+        {
+          device: 'wasm',
+          dtype: 'q4',
+          progress_callback: (progress) => {
+            const rawPercent = Number(progress?.progress);
+            const percent = Number.isFinite(rawPercent)
+              ? Math.max(0, Math.min(100, Math.round(rawPercent <= 1 ? rawPercent * 100 : rawPercent)))
+              : 0;
+            const detail = progress?.file ? 'Downloading ' + progress.file : (progress?.status === 'progress' ? 'Downloading local AI model…' : 'Preparing local AI model…');
+            setModelProgress({ text: detail, percent });
+          },
         },
-      });
-      engineRef.current = engine;
+      );
+      engineRef.current = generator;
       setApiStatus('ready');
-      setModelProgress({ text: 'Free AI model is ready on this device.', percent: 100 });
-      return engine;
+      setModelProgress({ text: 'Free CPU AI model is ready on this device.', percent: 100 });
+      return generator;
     } catch (loadError) {
-      setApiStatus('unsupported');
-      throw new Error('Could not load the free on-device model. Check WebGPU support, available device memory, and your internet connection, then refresh the page. Details: ' + (loadError?.message || 'model initialization failed'));
+      setApiStatus('error');
+      throw new Error('Could not load the free CPU model. Check your internet connection and browser storage, then refresh. The first download is several hundred MB. Details: ' + (loadError?.message || 'model initialization failed'));
     }
   };
 
-  const getImageDescription = async () => {
+    const getImageDescription = async () => {
     if (!image || !imagePreview) return '';
     setImageModelStatus('Loading the free image-captioning model (first use downloads model files)…');
     try {
@@ -207,18 +214,20 @@ export default function App() {
         'CONTEXT: ' + (context || 'Not supplied'),
         'SCRIPT / TRANSCRIPT: ' + (script || 'Not supplied'),
         'IMAGE DESCRIPTION FROM LOCAL IMAGE MODEL: ' + (imageDescription || 'No image supplied'),
-        'Create only the selected platform objects plus analysis. Make the output practical, specific, correctly formatted JSON. If the image description is vague, say so in analysis.assumptions and do not infer small text, logos, product names, or prices from it.',
+        'Return valid JSON only. Include analysis and only the requested platform objects. Do not invent facts, links, prices, names, or timestamps. If image details are vague, explain assumptions and never infer small text or product prices.',
       ].join('\n');
-      const completion = await engine.chat.completions.create({
-        messages: [
-          { role: 'system', content: LOCAL_SYSTEM_PROMPT },
-          { role: 'user', content: inputText },
-        ],
+      const messages = [
+        { role: 'system', content: LOCAL_SYSTEM_PROMPT },
+        { role: 'user', content: inputText },
+      ];
+      const generated = await engine(messages, {
+        max_new_tokens: 1500,
+        do_sample: true,
         temperature: 0.55,
-        max_tokens: 2200,
-        response_format: { type: 'json_object' },
       });
-      const result = parseLocalJson(completion.choices?.[0]?.message?.content);
+      const last = generated?.[0]?.generated_text;
+      const rawText = Array.isArray(last) ? last.at(-1)?.content : last;
+      const result = parseLocalJson(rawText);
       if (result.analysis == null) result.analysis = { topic: context || script.slice(0, 100) || imageDescription, primary_keyword: '', secondary_keywords: [], audience: profile.audience, hook_angle: '', assumptions: imageDescription ? ['Image details were summarized by a small local captioning model; verify visible text and product details.'] : [] };
       setGenerated(result);
       const firstAvailablePlatform = availablePlatforms.find((platform) => result?.[platform.key])?.key;
@@ -321,7 +330,7 @@ export default function App() {
         {nav.map((item) => { const Icon = item.icon; return <button key={item.key} className={page === item.key || (page === 'results' && item.key === 'generator') ? 'nav-item active' : 'nav-item'} onClick={() => { setPage(item.key); setError(''); }}><Icon size={18} /><span>{item.label}</span>{item.count > 0 && <small>{item.count}</small>}</button>; })}
       </nav>
       <div className="sidebar-spacer" />
-      <div className={'api-status ' + apiStatus}><span className="status-dot" /><div><b>{apiStatus === 'ready' ? 'Free AI available' : apiStatus === 'loading' ? 'Loading local AI' : apiStatus === 'unsupported' ? 'WebGPU required' : 'Checking browser'}</b><small>{apiStatus === 'ready' ? 'Runs on this device' : apiStatus === 'loading' ? 'Preparing the model…' : apiStatus === 'unsupported' ? 'Try updated Chrome or Edge' : 'Checking WebGPU support'}</small></div></div>
+      <div className={'api-status ' + apiStatus}><span className="status-dot" /><div><b>{apiStatus === 'ready' ? 'Free AI available' : apiStatus === 'loading' ? 'Loading local AI' : apiStatus === 'error' ? 'Model load failed' : 'Checking browser'}</b><small>{apiStatus === 'ready' ? 'Runs on device CPU/WASM' : apiStatus === 'loading' ? 'Preparing the model…' : apiStatus === 'error' ? 'Check connection and refresh' : 'Checking local model'}</small></div></div>
       <div className="sidebar-foot"><span>BUILT FOR CREATORS</span><span>v1.0 · CaptionCraft</span></div>
     </aside>
 
