@@ -12,7 +12,6 @@
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@mlc-ai/web-llm": "^0.2.86",
     "@huggingface/transformers": "^4.2.0"
   },
   "devDependencies": {
