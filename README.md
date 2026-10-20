@@ -1,48 +1,45 @@
-# CaptionCraft AI — Free Social Caption & SEO Generator
+# CaptionCraft AI — Free Social Caption & SEO Draft Builder
 
-Generate social media copy for Instagram, Facebook, YouTube, and LinkedIn using free open-source models that run locally in your browser. **No Anthropic key, no paid AI API, and no account with an AI provider is required.**
+Create fast, editable social content drafts for Instagram, Facebook, YouTube, and LinkedIn. The default generator is lightweight and runs in the browser without a GPU, model download, Anthropic key, paid AI API, or AI-provider account.
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/ManikandanP24/Social-Caption-SEO-Generator)
 
-## Features
+## What it does
 
-- **Multi-input generator:** provide an idea, paste a script/transcript, and/or upload an image.
-- **Platform-aware outputs:** Instagram/Facebook hooks, captions, SEO keywords, hashtags, CTA and alt text; YouTube titles, description, tags and pinned comment; LinkedIn hook, post, hashtags and closing question.
-- **Editable results:** edit generated fields, copy individual fields or a platform's content, and regenerate individual fields.
-- **Image captions on device:** a local image-captioning model summarizes uploads; verify output, especially product names, prices, logos and small text.
-- **Creator profile:** save brand name, niche, audience, tone, language, fixed hashtags and preferred CTA.
-- **History:** search generations, mark favorites, reload and edit previous results.
-- **Character warnings:** counters and warnings for key platform limits.
-- **Private and keyless AI:** text generation uses Transformers.js and a quantized ONNX model in browser CPU/WASM mode. Image captions use Transformers.js in the browser. Prompts and images are not sent to a paid AI API.
-- **Responsive UI:** desktop and mobile layouts.
+- Accept a content idea, script/transcript, and/or image filename plus context.
+- Build structured Instagram/Facebook captions, keywords, hashtags, CTA and alt-text suggestions.
+- Create YouTube title options, description templates, tags and pinned comment ideas.
+- Create LinkedIn hook/post/hashtags/closing question drafts.
+- Edit results, copy each field or a whole platform, and quickly regenerate template variations.
+- Save brand settings, recent drafts, and favorites in the browser.
+- Work on lower-powered devices because no LLM download or GPU inference is needed.
 
-## First use and hardware
+## Important limitation
 
-The text generator runs through WebAssembly on the device CPU and does not require WebGPU or a dedicated GPU. This fallback is intended for computers where WebLLM cannot find a compatible GPU. CPU generation is slower, especially for long outputs and when all three platforms are selected.
+**This release uses a rule-based template builder, not a ChatGPT-class AI model.** It is intentionally instant and reliable while avoiding the browser GPU/model loading errors from the earlier version. It extracts simple keywords from the supplied context/script and formats platform-specific copy; it does not deeply paraphrase, translate, analyze pixels in an image, or understand a script like a full LLM. For image-only input, add a description in the Content Idea field because the builder cannot read the image's contents. Edit and verify all drafts before publishing.
 
-The browser downloads the quantized language model and image-captioning model on first use; the downloads can total several hundred megabytes. A modern browser, enough free memory, and internet access for the initial model download are needed. The small model is less capable than hosted ChatGPT models. Check all copy, factual claims, platform limits, hashtags, links, timestamps, and alt text before publishing.
+If you later want more creative AI-generated copy, we can add an optional provider setting or a compatible model mode without making that dependency block the instant draft generator.
 
 ## Tech stack
 
 - Frontend: React 18, Vite, Lucide React
-- Browser-local language model: Transformers.js, onnx-community/SmolLM2-360M-Instruct-ONNX, quantized q4, CPU/WASM runtime
-- Browser-local image captioning: Transformers.js, Xenova/vit-gpt2-image-captioning
+- Quick generator: client-side JavaScript templates; no inference model
 - Static web server: Node.js and Express
-- Local persistence: browser localStorage for brand profile and history
+- Persistence: browser localStorage for brand profile and draft history
 
-History and profile data are stored in the browser in use; they are not synced to a cloud account.
+Brand settings and history live only in the current browser. They are not synced between devices.
 
 ## Requirements
 
-- Node.js 20 or newer recommended for local development/deployment
-- A current browser supporting WebAssembly
-- Internet access on first use to download the open models
+- Node.js 20 or newer for local setup and deployment
+- A modern browser
+- Internet access to load the site
 
-**No API key or .env file is required for AI.**
+No API key or .env file is required.
 
 ## Run locally
 
-1. Clone the repository:
+1. Clone this repository:
 
        git clone https://github.com/ManikandanP24/Social-Caption-SEO-Generator.git
        cd Social-Caption-SEO-Generator
@@ -53,28 +50,22 @@ History and profile data are stored in the browser in use; they are not synced t
        npm install --prefix client
        npm install --prefix server
 
-3. Start both the frontend and local web server:
+3. Start frontend and server:
 
        npm run dev
 
-4. Open the Vite URL shown in your terminal, usually http://localhost:5173.
+4. Open the Vite URL printed in the terminal, usually http://localhost:5173.
 
 ## Commands
 
-    npm run dev       # start frontend and local web server
-    npm run build     # build frontend assets for production
-    npm start         # serve the built frontend
+    npm run dev       # start frontend and static server
+    npm run build     # build frontend
+    npm start         # serve production build
 
 ## Deploy to Render
 
-The included render.yaml deploys the frontend and server as a single Render web service. No AI provider secret is required. After approving a Blueprint deployment, Render will show the public URL. On the free Render tier, the service may spin down after inactivity; a later visit can take a while to start.
-
-## Notes
-
-- The image caption model generates a scene description and may not read on-image text reliably.
-- Image uploads support PNG, JPEG, WebP and GIF up to 10 MB.
-- Authentication, cross-device history sync, social publishing/scheduling, and cloud database storage are not included.
+The included render.yaml describes a single web service for the frontend and Express static server. No AI-provider secret is needed. After approving the Blueprint, Render provides the public .onrender.com URL. Free services may spin down after inactivity.
 
 ## License
 
-No license has been specified yet. Add a license file before redistributing the project.
+No license has been specified yet. Add a license file before redistribution.
