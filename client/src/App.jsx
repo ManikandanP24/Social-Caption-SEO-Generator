@@ -258,25 +258,26 @@ export default function App() {
       const engine = await ensureLocalEngine();
       const request = [
         'Regenerate exactly one field from this social media content project.',
-        'Return ONLY valid JSON matching {"value":"new text"} or {"value":["item 1","item 2"]}.',
-        'Do not add markdown fences or any additional properties.',
+        'Return ONLY valid JSON of the form {"value":"new text"} or {"value":["item 1","item 2"]}.',
+        'Do not return markdown fences or extra properties.',
         'Platform: ' + (PLATFORMS.find((item) => item.key === platformKey)?.label || platformKey),
         'Field: ' + field.key,
         'Current value: ' + JSON.stringify(generated?.[platformKey]?.[field.key]),
         'Creator inputs: ' + JSON.stringify({ ...currentInputs(), platforms: selectedPlatforms }),
         'Existing output for context: ' + JSON.stringify(generated?.[platformKey] || {}),
-        'Keep requested language, tone, platform character limits, and source facts. Produce a better alternative without inventing details.',
+        'Keep the requested language, tone, source facts, and platform character limits. Do not invent details.',
       ].join('\n');
-      const completion = await engine.chat.completions.create({
-        messages: [
-          { role: 'system', content: 'You are a social media copywriter. Follow the user instructions and preserve facts. Return only valid JSON.' },
-          { role: 'user', content: request },
-        ],
-        temperature: 0.7,
-        max_tokens: 700,
-        response_format: { type: 'json_object' },
+      const generatedOutput = await engine([
+        { role: 'system', content: 'You are a careful social media copywriter. Preserve source facts and obey the format exactly.' },
+        { role: 'user', content: request },
+      ], {
+        max_new_tokens: 300,
+        do_sample: true,
+        temperature: 0.6,
       });
-      const parsed = parseLocalJson(completion.choices?.[0]?.message?.content);
+      const last = generatedOutput?.[0]?.generated_text;
+      const rawText = Array.isArray(last) ? last.at(-1)?.content : last;
+      const parsed = parseLocalJson(rawText);
       let value = parsed?.value;
       if (value === undefined) value = parsed?.[field.key];
       if (value === undefined) throw new Error('The local model did not return the requested field. Try again.');
