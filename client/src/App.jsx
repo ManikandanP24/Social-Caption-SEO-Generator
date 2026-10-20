@@ -164,7 +164,6 @@ export default function App() {
       if (!response.ok) throw new Error(data.error || 'Could not regenerate this field.');
       setGenerated((old) => {
         const next = { ...old, [platformKey]: { ...old?.[platformKey], [field.key]: data.value } };
-        if (activeHistoryId) setHistory((items) => items.map((item) => item.id === activeHistoryId ? { ...item, result: next } : item));
         return next;
       });
       showToast(field.label + ' regenerated');
