@@ -5,14 +5,7 @@ services:
     plan: free
     region: singapore
     branch: main
-    autoDeployTrigger: off
+    autoDeployTrigger: commit
     buildCommand: npm install && npm install --prefix client && npm install --prefix server && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: CLAUDE_MODEL
-        value: claude-sonnet-5-5
-      - key: ANTHROPIC_API_KEY
-        sync: false
