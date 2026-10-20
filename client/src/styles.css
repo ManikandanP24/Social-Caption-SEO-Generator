@@ -312,3 +312,17 @@ h1 em { color: #709a48; font-style: normal; }
   .profile-action-row > button { flex: 1; }
   .toast-message { right: 12px; left: 12px; bottom: 12px; justify-content: center; }
 }
+
+
+.local-ai-note { display: flex; align-items: flex-start; gap: 9px; padding: 12px 0 2px; color: #b8d5ab; }
+.local-ai-note > svg { flex: 0 0 auto; margin-top: 2px; color: #c8f17b; }
+.local-ai-note span { display: grid; gap: 4px; }
+.local-ai-note b { color: #e0eddc; font-size: 10px; }
+.local-ai-note small { color: #9bb39f; font-size: 9px; line-height: 1.5; }
+.model-progress { margin: 11px 0 2px; padding: 11px; border: 1px solid #45614b; border-radius: 9px; background: #294333; color: #dbe8d9; font-size: 9px; line-height: 1.5; }
+.model-progress-head { display: flex; justify-content: space-between; gap: 10px; align-items: start; margin-bottom: 8px; }
+.model-progress-head span { flex: 1; }
+.model-progress-head b { color: #c8f17b; white-space: nowrap; }
+.model-progress-track { height: 5px; background: #3c5844; border-radius: 20px; overflow: hidden; }
+.model-progress-track span { display: block; height: 100%; background: #c8f17b; border-radius: inherit; transition: width .25s; }
+.image-model-status { color: #e0e9dd; margin-top: 8px; }
