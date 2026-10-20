@@ -1,9 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowRight, Check, Clock3, Copy, FileImage, Heart, History, ImagePlus,
-  Instagram, Linkedin, LoaderCircle, Menu, RefreshCw, Search, Settings2,
+  ArrowRight, Check, Clock3, Copy, FileImage, History, ImagePlus,
+  Instagram, Linkedin, LoaderCircle, RefreshCw, Search, Settings2,
   Sparkles, Star, Trash2, UploadCloud, WandSparkles, Youtube, X, Zap,
 } from 'lucide-react';
+
+const LOCAL_MODEL_ID = 'Llama-3.2-1B-Instruct-q4f16_1-MLC';
+const LOCAL_SYSTEM_PROMPT = `You are CaptionCraft AI, an expert social media copywriter and SEO strategist. Use only source details provided; never invent facts, prices, names, claims, links, or timestamps. Write in the requested language, niche, tone, and audience. Keep keywords natural and hooks specific. Instagram captions <= 2200 characters with a CTA and 3-8 relevant hashtags; Facebook copy can use 1-3 hashtags. YouTube: exactly 3 titles <= 100 characters, description <= 5000 characters with keyword near the start and clearly marked timestamp/link placeholders when needed, tags whose combined comma-separated length <= 500 characters, 3-5 hashtags, and a pinned comment. LinkedIn: post <= 3000 characters, short paragraphs, 3-5 hashtags, and a closing question. Use emojis sparingly. Return only valid JSON, no markdown fences, matching this schema with analysis plus ONLY requested platform objects: {"analysis":{"topic":"","primary_keyword":"","secondary_keywords":[],"audience":"","hook_angle":"","assumptions":[]},"instagram_facebook":{"hook":"","caption":"","seo_keywords":[],"hashtags":[],"cta":"","alt_text":""},"youtube":{"titles":["","",""],"description":"","tags":[],"hashtags":[],"pinned_comment":""},"linkedin":{"hook":"","post":"","hashtags":[],"cta_question":""}}`;
+
+function parseLocalJson(raw) {
+  const text = String(raw || '').trim().replace(/^\x60\x60\x60(?:json)?\s*/i, '').replace(/\s*\x60\x60\x60$/, '').trim();
+  try { return JSON.parse(text); } catch {
+    const start = text.indexOf('{');
+    const end = text.lastIndexOf('}');
+    if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));
+    throw new Error('The on-device model returned an unreadable response. Try again or simplify the input.');
+  }
+}
 
 const PLATFORMS = [
   { key: 'instagram_facebook', label: 'Instagram / Facebook', short: 'Instagram / FB', icon: Instagram, color: '#d94b86' },
@@ -61,9 +74,13 @@ export default function App() {
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
   const [apiStatus, setApiStatus] = useState('checking');
+  const [modelProgress, setModelProgress] = useState({ text: '', percent: 0 });
+  const [imageModelStatus, setImageModelStatus] = useState('');
   const [search, setSearch] = useState('');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const fileInput = useRef(null);
+  const engineRef = useRef(null);
+  const imageCaptionerRef = useRef(null);
   const availablePlatforms = useMemo(() => PLATFORMS.filter((platform) => selectedPlatforms.includes(platform.key)), [selectedPlatforms]);
 
   useEffect(() => { localStorage.setItem('captioncraft.profile', JSON.stringify(profile)); }, [profile]);
@@ -73,7 +90,7 @@ export default function App() {
     setHistory((items) => items.map((item) => item.id === activeHistoryId ? { ...item, result: generated, context, script, platforms: selectedPlatforms, inputs: { ...item.inputs, platforms: selectedPlatforms, niche: profile.niche, tone: profile.tone, language: profile.language, audience: profile.audience, context, script, brandProfile: profilePayload() } } : item));
   }, [generated, activeHistoryId, context, script, selectedPlatforms, profile]);
   useEffect(() => {
-    fetch('/api/health').then((res) => res.json()).then((data) => setApiStatus(data.configured ? 'ready' : 'missing-key')).catch(() => setApiStatus('offline'));
+    setApiStatus(typeof navigator !== 'undefined' && navigator.gpu ? 'ready' : 'unsupported');
   }, []);
   useEffect(() => {
     if (!toast) return undefined;
@@ -114,6 +131,59 @@ export default function App() {
     return entry.id;
   };
 
+  const ensureLocalEngine = async () => {
+    if (engineRef.current) return engineRef.current;
+    if (typeof navigator === 'undefined' || !navigator.gpu) {
+      throw new Error('Free on-device AI needs a WebGPU-compatible browser such as an up-to-date Chrome or Edge. No API key is used.');
+    }
+    setApiStatus('loading');
+    setModelProgress({ text: 'Preparing the free AI model…', percent: 0 });
+    try {
+      const { CreateMLCEngine } = await import('@mlc-ai/web-llm');
+      const engine = await CreateMLCEngine(LOCAL_MODEL_ID, {
+        initProgressCallback: (progress) => {
+          const percent = Math.max(0, Math.min(100, Math.round(Number(progress?.progress || 0) * 100)));
+          setModelProgress({ text: progress?.text || progress?.stage || 'Downloading local AI model…', percent });
+        },
+      });
+      engineRef.current = engine;
+      setApiStatus('ready');
+      setModelProgress({ text: 'Free AI model is ready on this device.', percent: 100 });
+      return engine;
+    } catch (loadError) {
+      setApiStatus('unsupported');
+      throw new Error('Could not load the free on-device model. Check WebGPU support, available device memory, and your internet connection, then refresh the page. Details: ' + (loadError?.message || 'model initialization failed'));
+    }
+  };
+
+  const getImageDescription = async () => {
+    if (!image || !imagePreview) return '';
+    setImageModelStatus('Loading the free image-captioning model (first use downloads model files)…');
+    try {
+      if (!imageCaptionerRef.current) {
+        const { pipeline } = await import('@huggingface/transformers');
+        imageCaptionerRef.current = await pipeline('image-to-text', 'Xenova/vit-gpt2-image-captioning', {
+          progress_callback: (progress) => {
+            if (progress?.status === 'progress') {
+              setImageModelStatus('Downloading local image model: ' + Math.round(progress.progress || 0) + '%');
+            } else if (progress?.status === 'initiate') {
+              setImageModelStatus('Preparing local image model…');
+            }
+          },
+        });
+      }
+      setImageModelStatus('Analyzing the uploaded image on your device…');
+      const captionResult = await imageCaptionerRef.current(imagePreview);
+      const description = Array.isArray(captionResult) ? captionResult[0]?.generated_text : captionResult?.generated_text;
+      if (!description) throw new Error('No image description was returned.');
+      setImageModelStatus('Image analyzed locally.');
+      return String(description).trim();
+    } catch (captionError) {
+      setImageModelStatus('');
+      throw new Error('Local image analysis failed. You can remove the image and describe it in the Content Idea field. Details: ' + (captionError?.message || 'image captioning failed'));
+    }
+  };
+
   const handleGenerate = async (event) => {
     if (event) event.preventDefault();
     setError('');
@@ -122,26 +192,49 @@ export default function App() {
     setBusy(true);
     const inputs = currentInputs();
     try {
-      const form = new FormData();
-      form.append('platforms', JSON.stringify(inputs.platforms));
-      ['niche', 'tone', 'language', 'audience', 'context', 'script'].forEach((key) => form.append(key, inputs[key] || ''));
-      form.append('brandProfile', JSON.stringify(inputs.brandProfile));
-      if (image) form.append('image', image);
-      const response = await fetch('/api/generate', { method: 'POST', body: form });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.error || 'Generation failed. Please try again.');
-      setGenerated(data.result);
-      const firstAvailablePlatform = availablePlatforms.find((platform) => data.result?.[platform.key])?.key;
-      setActivePlatform(firstAvailablePlatform || (data.result?.instagram_facebook ? 'instagram_facebook' : (inputs.platforms[0] || 'youtube')));
-      saveGeneration(data.result, inputs, image?.name || '');
+      const engine = await ensureLocalEngine();
+      let imageDescription = '';
+      if (image) imageDescription = await getImageDescription();
+      const inputText = [
+        'PLATFORMS REQUESTED: ' + selectedPlatforms.map((key) => PLATFORMS.find((platform) => platform.key === key)?.label || key).join(', '),
+        'NICHE: ' + (profile.niche || 'Not specified'),
+        'TONE: ' + (profile.tone || 'Professional'),
+        'LANGUAGE: ' + (profile.language || 'English'),
+        'AUDIENCE: ' + (profile.audience || 'Not specified'),
+        'BRAND NAME: ' + (profile.name || 'Not specified'),
+        'FIXED HASHTAGS: ' + (profile.fixedHashtags || 'None supplied'),
+        'CTA PREFERENCE: ' + (profile.cta || 'Use a relevant CTA'),
+        'CONTEXT: ' + (context || 'Not supplied'),
+        'SCRIPT / TRANSCRIPT: ' + (script || 'Not supplied'),
+        'IMAGE DESCRIPTION FROM LOCAL IMAGE MODEL: ' + (imageDescription || 'No image supplied'),
+        'Create only the selected platform objects plus analysis. Make the output practical, specific, correctly formatted JSON. If the image description is vague, say so in analysis.assumptions and do not infer small text, logos, product names, or prices from it.',
+      ].join('\n');
+      const completion = await engine.chat.completions.create({
+        messages: [
+          { role: 'system', content: LOCAL_SYSTEM_PROMPT },
+          { role: 'user', content: inputText },
+        ],
+        temperature: 0.55,
+        max_tokens: 2200,
+        response_format: { type: 'json_object' },
+      });
+      const result = parseLocalJson(completion.choices?.[0]?.message?.content);
+      if (result.analysis == null) result.analysis = { topic: context || script.slice(0, 100) || imageDescription, primary_keyword: '', secondary_keywords: [], audience: profile.audience, hook_angle: '', assumptions: imageDescription ? ['Image details were summarized by a small local captioning model; verify visible text and product details.'] : [] };
+      setGenerated(result);
+      const firstAvailablePlatform = availablePlatforms.find((platform) => result?.[platform.key])?.key;
+      setActivePlatform(firstAvailablePlatform || (result?.instagram_facebook ? 'instagram_facebook' : (inputs.platforms[0] || 'youtube')));
+      saveGeneration(result, inputs, image?.name || '');
       setPage('results');
-      showToast('Your content is ready');
+      showToast('Your content is ready — generated on your device');
     } catch (requestError) {
-      setError(requestError.message || 'Could not connect. Check that the API server is running.');
-    } finally { setBusy(false); }
+      setError(requestError.message || 'Local generation failed. Refresh the page and try again.');
+    } finally {
+      setBusy(false);
+      setImageModelStatus('');
+    }
   };
 
-  const updateField = (platformKey, field, raw, isArray) => {
+    const updateField = (platformKey, field, raw, isArray) => {
     const value = parseField(raw, isArray);
     setGenerated((old) => {
       const next = { ...old, [platformKey]: { ...old?.[platformKey], [field]: value } };
