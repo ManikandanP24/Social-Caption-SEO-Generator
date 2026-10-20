@@ -5,16 +5,187 @@ import {
   Sparkles, Star, Trash2, UploadCloud, WandSparkles, Youtube, X, Zap,
 } from 'lucide-react';
 
-const LOCAL_SYSTEM_PROMPT = `You are CaptionCraft AI, an expert social media copywriter and SEO strategist. Use only source details provided; never invent facts, prices, names, claims, links, or timestamps. Write in the requested language, niche, tone, and audience. Keep keywords natural and hooks specific. Instagram captions <= 2200 characters with a CTA and 3-8 relevant hashtags; Facebook copy can use 1-3 hashtags. YouTube: exactly 3 titles <= 100 characters, description <= 5000 characters with keyword near the start and clearly marked timestamp/link placeholders when needed, tags whose combined comma-separated length <= 500 characters, 3-5 hashtags, and a pinned comment. LinkedIn: post <= 3000 characters, short paragraphs, 3-5 hashtags, and a closing question. Use emojis sparingly. Return only valid JSON, no markdown fences, matching this schema with analysis plus ONLY requested platform objects: {"analysis":{"topic":"","primary_keyword":"","secondary_keywords":[],"audience":"","hook_angle":"","assumptions":[]},"instagram_facebook":{"hook":"","caption":"","seo_keywords":[],"hashtags":[],"cta":"","alt_text":""},"youtube":{"titles":["","",""],"description":"","tags":[],"hashtags":[],"pinned_comment":""},"linkedin":{"hook":"","post":"","hashtags":[],"cta_question":""}}`;
+const STOPWORDS = new Set('a an about above after again all also am an and any are as at be because been before being below between both but by can could did do does doing down during each few for from further get got had has have having he her here hers herself him himself his how i if in into is it its itself just me more most my myself no nor not of off on once only or other our ours ourselves out over own same she should so some such than that the their theirs them themselves then there these they this those through to too under until up very was we were what when where which while who whom why will with would you your yours yourself yourselves via use using make makes made much many like want'.split(/\s+/));
 
-function parseLocalJson(raw) {
-  const text = String(raw || '').trim().replace(/^\x60\x60\x60(?:json)?\s*/i, '').replace(/\s*\x60\x60\x60$/, '').trim();
-  try { return JSON.parse(text); } catch {
-    const start = text.indexOf('{');
-    const end = text.lastIndexOf('}');
-    if (start >= 0 && end > start) return JSON.parse(text.slice(start, end + 1));
-    throw new Error('The on-device model returned an unreadable response. Try again or simplify the input.');
+function cleanText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function clipText(value, maxLength = 280) {
+  const text = cleanText(value);
+  if (text.length <= maxLength) return text;
+  const clipped = text.slice(0, maxLength);
+  const lastSpace = clipped.lastIndexOf(' ');
+  return (lastSpace > maxLength * 0.65 ? clipped.slice(0, lastSpace) : clipped).trim().replace(/[,:;—-]+$/, '') + '…';
+}
+
+function clipBlock(value, maxLength = 2800) {
+  const text = String(value || '').replace(/\r/g, '').trim();
+  if (text.length <= maxLength) return text;
+  const clipped = text.slice(0, maxLength);
+  const lastSpace = clipped.lastIndexOf(' ');
+  return (lastSpace > maxLength * 0.65 ? clipped.slice(0, lastSpace) : clipped).trim().replace(/[,:;—-]+$/, '') + '…';
+}
+
+function extractTopic(context, script, niche, imageName) {
+  let source = cleanText(context) || cleanText(script) || cleanText(imageName).replace(/\.[a-z0-9]{2,5}$/i, '').replace(/[_-]+/g, ' ') || cleanText(niche) || 'your content';
+  source = source.replace(/^(reel|video|post|topic|context|script)\s*:\s*/i, '').replace(/^["'“”]+|["'“”]+$/g, '');
+  const firstSentence = source.match(/^.{1,150}?(?:[.!?](?:\s|$)|$)/);
+  source = firstSentence?.[0] || source;
+  return clipText(source.replace(/[.!?]+$/, ''), 115) || 'your content';
+}
+
+function extractKeywords(source, niche = '') {
+  const words = (cleanText(source + ' ' + niche).toLowerCase().match(/[a-z0-9\u0B80-\u0BFF\u0900-\u097F\u0600-\u06FF]+/g) || []);
+  const counts = new Map();
+  for (const word of words) {
+    if (word.length < 3 || STOPWORDS.has(word) || /^\d+$/.test(word)) continue;
+    counts.set(word, (counts.get(word) || 0) + 1);
   }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([word]) => word).slice(0, 10);
+}
+
+function asHashtag(value) {
+  const cleaned = String(value || '').replace(/^#+/, '').replace(/[^a-zA-Z0-9\u0B80-\u0BFF\u0900-\u097F\u0600-\u06FF]/g, '');
+  return cleaned ? '#' + cleaned : '';
+}
+
+function makeHashtags(keywords, fixedTags, limit = 5) {
+  const fixed = String(fixedTags || '').split(/[\s,]+/).map(asHashtag).filter(Boolean);
+  const derived = (keywords || []).map(asHashtag).filter(Boolean);
+  return [...new Set([...fixed, ...derived])].slice(0, limit);
+}
+
+// Fast offline-first drafting: produces editable, platform-shaped copy without loading an AI model.
+function buildQuickDraft(inputs, imageName = '', variant = 0) {
+  const platforms = Array.isArray(inputs.platforms) ? inputs.platforms : [];
+  const profile = inputs.brandProfile || {};
+  const niche = cleanText(inputs.niche || 'content creation');
+  const audience = cleanText(inputs.audience || 'your audience');
+  const context = cleanText(inputs.context);
+  const script = cleanText(inputs.script);
+  const source = [context, script].filter(Boolean).join(' ');
+  const topic = extractTopic(context, script, niche, imageName);
+  const keywords = extractKeywords(source || topic, niche);
+  const primary = keywords[0] || topic;
+  const secondary = keywords.filter((word) => word !== primary).slice(0, 7);
+  const snippet = clipText(script || context, 390);
+  const cta = cleanText(profile.cta || 'Follow for more helpful content.');
+  const rotation = Math.abs(Number(variant) || 0);
+  const hashtagsBase = [...keywords, niche, 'contentcreation', 'socialmedia'];
+  const instagramTags = makeHashtags(hashtagsBase, profile.fixedHashtags, 8);
+  const youtubeTags = [...new Set([primary, ...secondary, topic, niche, topic + ' tips', 'content tips'].map(cleanText).filter(Boolean))].slice(0, 12);
+  const youtubeHashtags = makeHashtags([...keywords, niche, 'contentcreation'], '', 5);
+  const linkedinTags = makeHashtags([...keywords, niche, 'contentstrategy'], profile.fixedHashtags, 5);
+  const igHooks = [
+    'Want to make sense of ' + topic + '? Start here.',
+    'Let’s break down ' + topic + ' in a clear, practical way.',
+    'Your next post about ' + topic + ' starts with the right message.',
+    'A quick guide to ' + topic + ' — save this for later.',
+    'Keep ' + topic + ' clear, useful, and audience-focused.',
+  ];
+  const ytTitleOptions = [
+    topic,
+    'What to Know About ' + topic,
+    topic + ': Key Points and Takeaways',
+    'A Simple Guide to ' + topic,
+    'Understanding ' + topic,
+  ];
+  const ytTitles = [
+    clipText(ytTitleOptions[rotation % ytTitleOptions.length], 95),
+    clipText(ytTitleOptions[(rotation + 1) % ytTitleOptions.length], 95),
+    clipText(ytTitleOptions[(rotation + 2) % ytTitleOptions.length], 95),
+  ];
+  const assumptions = [];
+  if (imageName && !context && !script) assumptions.push('Only the uploaded filename was available to this instant draft builder. Add a content idea for a more accurate result.');
+  if (!source) assumptions.push('The draft is based on the selected niche because no descriptive text was provided.');
+  const result = {
+    analysis: {
+      topic,
+      primary_keyword: primary,
+      secondary_keywords: secondary,
+      audience,
+      hook_angle: rotation % 2 ? 'Practical, clear explanation' : 'Useful starting point and save-worthy guidance',
+      assumptions,
+    },
+  };
+
+  if (platforms.includes('instagram_facebook')) {
+    const hook = igHooks[rotation % igHooks.length];
+    const caption = [
+      hook,
+      '',
+      snippet ? 'From your content: ' + snippet : 'Introduce the main idea, explain why it matters to ' + audience + ', and keep the message easy to follow.',
+      '',
+      'Keep the message clear, useful, and relevant to ' + audience + '.',
+      '',
+      cta,
+      '',
+      instagramTags.join(' '),
+    ].join('\n');
+    result.instagram_facebook = {
+      hook,
+      caption: clipBlock(caption, 2150),
+      seo_keywords: [primary, ...secondary.slice(0, 5)].filter(Boolean),
+      hashtags: instagramTags,
+      cta,
+      alt_text: imageName
+        ? 'Uploaded image (' + cleanText(imageName) + ') intended for a post about ' + topic + '. Update this text to describe the actual visible details.'
+        : 'Visual accompanying a social post about ' + topic + '. Add the visible subjects, setting, and any meaningful text for accessibility.',
+    };
+  }
+
+  if (platforms.includes('youtube')) {
+    const description = [
+      topic + ' — a clear introduction for ' + audience + '.',
+      snippet ? snippet : 'Introduce the topic, share the main points, and end with a useful takeaway.',
+      '',
+      'TIMESTAMPS',
+      '00:00 Introduction (replace with actual video timing)',
+      '',
+      'LINKS',
+      '[Add relevant links here]',
+      '',
+      cta,
+      '',
+      youtubeHashtags.join(' '),
+    ].join('\n');
+    result.youtube = {
+      titles: ytTitles,
+      description: clipBlock(description, 4900),
+      tags: youtubeTags,
+      hashtags: youtubeHashtags,
+      pinned_comment: 'What would you add to this conversation about ' + topic + '? Share your thoughts below.',
+    };
+  }
+
+  if (platforms.includes('linkedin')) {
+    const hook = [
+      'A useful conversation to have: ' + topic + '.',
+      'Clear communication matters when discussing ' + topic + '.',
+      'One way to make content about ' + topic + ' more useful is to focus on the audience.',
+      'Let’s look at ' + topic + ' through a practical lens.',
+      'Make the message about ' + topic + ' specific, useful, and easy to act on.',
+    ][rotation % 5];
+    const post = [
+      hook,
+      '',
+      snippet || 'Start with the central idea, explain its relevance, and make the takeaway clear.',
+      '',
+      'A practical takeaway: keep the message specific, useful, and easy for the intended audience to act on.',
+      '',
+      'How are you approaching ' + topic + '?',
+      '',
+      linkedinTags.join(' '),
+    ].join('\n');
+    result.linkedin = {
+      hook,
+      post: clipBlock(post, 2950),
+      hashtags: linkedinTags,
+      cta_question: 'How are you approaching ' + topic + '?',
+    };
+  }
+  return result;
 }
 
 const PLATFORMS = [
@@ -72,14 +243,10 @@ export default function App() {
   const [regenerating, setRegenerating] = useState('');
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
-  const [apiStatus, setApiStatus] = useState('checking');
-  const [modelProgress, setModelProgress] = useState({ text: '', percent: 0 });
-  const [imageModelStatus, setImageModelStatus] = useState('');
+  const [apiStatus, setApiStatus] = useState('ready');
   const [search, setSearch] = useState('');
   const [favoritesOnly, setFavoritesOnly] = useState(false);
   const fileInput = useRef(null);
-  const engineRef = useRef(null);
-  const imageCaptionerRef = useRef(null);
   const availablePlatforms = useMemo(() => PLATFORMS.filter((platform) => selectedPlatforms.includes(platform.key)), [selectedPlatforms]);
 
   useEffect(() => { localStorage.setItem('captioncraft.profile', JSON.stringify(profile)); }, [profile]);
@@ -88,9 +255,7 @@ export default function App() {
     if (!activeHistoryId || !generated) return;
     setHistory((items) => items.map((item) => item.id === activeHistoryId ? { ...item, result: generated, context, script, platforms: selectedPlatforms, inputs: { ...item.inputs, platforms: selectedPlatforms, niche: profile.niche, tone: profile.tone, language: profile.language, audience: profile.audience, context, script, brandProfile: profilePayload() } } : item));
   }, [generated, activeHistoryId, context, script, selectedPlatforms, profile]);
-  useEffect(() => {
-    setApiStatus('ready');
-  }, []);
+  useEffect(() => { setApiStatus('ready'); }, []);
   useEffect(() => {
     if (!toast) return undefined;
     const timer = window.setTimeout(() => setToast(''), 2600);
@@ -130,115 +295,31 @@ export default function App() {
     return entry.id;
   };
 
-  const ensureLocalEngine = async () => {
-    if (engineRef.current) return engineRef.current;
-    setApiStatus('loading');
-    setModelProgress({ text: 'Preparing the free CPU-friendly AI model…', percent: 0 });
-    try {
-      const { pipeline } = await import('@huggingface/transformers');
-      const generator = await pipeline(
-        'text-generation',
-        'onnx-community/SmolLM2-360M-Instruct-ONNX',
-        {
-          device: 'wasm',
-          dtype: 'q4',
-          progress_callback: (progress) => {
-            const rawPercent = Number(progress?.progress);
-            const percent = Number.isFinite(rawPercent)
-              ? Math.max(0, Math.min(100, Math.round(rawPercent <= 1 ? rawPercent * 100 : rawPercent)))
-              : 0;
-            const detail = progress?.file ? 'Downloading ' + progress.file : (progress?.status === 'progress' ? 'Downloading local AI model…' : 'Preparing local AI model…');
-            setModelProgress({ text: detail, percent });
-          },
-        },
-      );
-      engineRef.current = generator;
-      setApiStatus('ready');
-      setModelProgress({ text: 'Free CPU AI model is ready on this device.', percent: 100 });
-      return generator;
-    } catch (loadError) {
-      setApiStatus('error');
-      throw new Error('Could not load the free CPU model. Check your internet connection and browser storage, then refresh. The first download is several hundred MB. Details: ' + (loadError?.message || 'model initialization failed'));
-    }
-  };
-
-    const getImageDescription = async () => {
-    if (!image || !imagePreview) return '';
-    setImageModelStatus('Loading the free image-captioning model (first use downloads model files)…');
-    try {
-      if (!imageCaptionerRef.current) {
-        const { pipeline } = await import('@huggingface/transformers');
-        imageCaptionerRef.current = await pipeline('image-to-text', 'Xenova/vit-gpt2-image-captioning', {
-          progress_callback: (progress) => {
-            if (progress?.status === 'progress') {
-              setImageModelStatus('Downloading local image model: ' + Math.round(progress.progress || 0) + '%');
-            } else if (progress?.status === 'initiate') {
-              setImageModelStatus('Preparing local image model…');
-            }
-          },
-        });
-      }
-      setImageModelStatus('Analyzing the uploaded image on your device…');
-      const captionResult = await imageCaptionerRef.current(imagePreview);
-      const description = Array.isArray(captionResult) ? captionResult[0]?.generated_text : captionResult?.generated_text;
-      if (!description) throw new Error('No image description was returned.');
-      setImageModelStatus('Image analyzed locally.');
-      return String(description).trim();
-    } catch (captionError) {
-      setImageModelStatus('');
-      throw new Error('Local image analysis failed. You can remove the image and describe it in the Content Idea field. Details: ' + (captionError?.message || 'image captioning failed'));
-    }
-  };
-
   const handleGenerate = async (event) => {
     if (event) event.preventDefault();
     setError('');
-    if (!context.trim() && !script.trim() && !image) { setError('Add a content idea, paste a script, or upload an image first.'); return; }
-    if (!selectedPlatforms.length) { setError('Choose at least one platform.'); return; }
+    if (!context.trim() && !script.trim() && !image) {
+      setError('Add a content idea, paste a script, or upload an image first.');
+      return;
+    }
+    if (!selectedPlatforms.length) {
+      setError('Choose at least one platform.');
+      return;
+    }
     setBusy(true);
-    const inputs = currentInputs();
     try {
-      const engine = await ensureLocalEngine();
-      let imageDescription = '';
-      if (image) imageDescription = await getImageDescription();
-      const inputText = [
-        'PLATFORMS REQUESTED: ' + selectedPlatforms.map((key) => PLATFORMS.find((platform) => platform.key === key)?.label || key).join(', '),
-        'NICHE: ' + (profile.niche || 'Not specified'),
-        'TONE: ' + (profile.tone || 'Professional'),
-        'LANGUAGE: ' + (profile.language || 'English'),
-        'AUDIENCE: ' + (profile.audience || 'Not specified'),
-        'BRAND NAME: ' + (profile.name || 'Not specified'),
-        'FIXED HASHTAGS: ' + (profile.fixedHashtags || 'None supplied'),
-        'CTA PREFERENCE: ' + (profile.cta || 'Use a relevant CTA'),
-        'CONTEXT: ' + (context || 'Not supplied'),
-        'SCRIPT / TRANSCRIPT: ' + (script || 'Not supplied'),
-        'IMAGE DESCRIPTION FROM LOCAL IMAGE MODEL: ' + (imageDescription || 'No image supplied'),
-        'Return valid JSON only. Include analysis and only the requested platform objects. Do not invent facts, links, prices, names, or timestamps. If image details are vague, explain assumptions and never infer small text or product prices.',
-      ].join('\n');
-      const messages = [
-        { role: 'system', content: LOCAL_SYSTEM_PROMPT },
-        { role: 'user', content: inputText },
-      ];
-      const generated = await engine(messages, {
-        max_new_tokens: 1500,
-        do_sample: true,
-        temperature: 0.55,
-      });
-      const last = generated?.[0]?.generated_text;
-      const rawText = Array.isArray(last) ? last.at(-1)?.content : last;
-      const result = parseLocalJson(rawText);
-      if (result.analysis == null) result.analysis = { topic: context || script.slice(0, 100) || imageDescription, primary_keyword: '', secondary_keywords: [], audience: profile.audience, hook_angle: '', assumptions: imageDescription ? ['Image details were summarized by a small local captioning model; verify visible text and product details.'] : [] };
+      const inputs = currentInputs();
+      const result = buildQuickDraft(inputs, image?.name || '');
       setGenerated(result);
       const firstAvailablePlatform = availablePlatforms.find((platform) => result?.[platform.key])?.key;
-      setActivePlatform(firstAvailablePlatform || (result?.instagram_facebook ? 'instagram_facebook' : (inputs.platforms[0] || 'youtube')));
+      setActivePlatform(firstAvailablePlatform || selectedPlatforms[0]);
       saveGeneration(result, inputs, image?.name || '');
       setPage('results');
-      showToast('Your content is ready — generated on your device');
+      showToast('Draft created instantly');
     } catch (requestError) {
-      setError(requestError.message || 'Local generation failed. Refresh the page and try again.');
+      setError(requestError.message || 'Could not create the draft. Please try again.');
     } finally {
       setBusy(false);
-      setImageModelStatus('');
     }
   };
 
@@ -252,41 +333,33 @@ export default function App() {
 
   const regenerateField = async (platformKey, field) => {
     const operation = platformKey + '.' + field.key;
-    setRegenerating(operation); setError('');
+    setRegenerating(operation);
+    setError('');
     try {
-      const engine = await ensureLocalEngine();
-      const request = [
-        'Regenerate exactly one field from this social media content project.',
-        'Return ONLY valid JSON of the form {"value":"new text"} or {"value":["item 1","item 2"]}.',
-        'Do not return markdown fences or extra properties.',
-        'Platform: ' + (PLATFORMS.find((item) => item.key === platformKey)?.label || platformKey),
-        'Field: ' + field.key,
-        'Current value: ' + JSON.stringify(generated?.[platformKey]?.[field.key]),
-        'Creator inputs: ' + JSON.stringify({ ...currentInputs(), platforms: selectedPlatforms }),
-        'Existing output for context: ' + JSON.stringify(generated?.[platformKey] || {}),
-        'Keep the requested language, tone, source facts, and platform character limits. Do not invent details.',
-      ].join('\n');
-      const generatedOutput = await engine([
-        { role: 'system', content: 'You are a careful social media copywriter. Preserve source facts and obey the format exactly.' },
-        { role: 'user', content: request },
-      ], {
-        max_new_tokens: 300,
-        do_sample: true,
-        temperature: 0.6,
-      });
-      const last = generatedOutput?.[0]?.generated_text;
-      const rawText = Array.isArray(last) ? last.at(-1)?.content : last;
-      const parsed = parseLocalJson(rawText);
-      let value = parsed?.value;
-      if (value === undefined) value = parsed?.[field.key];
-      if (value === undefined) throw new Error('The local model did not return the requested field. Try again.');
-      setGenerated((old) => {
-        const next = { ...old, [platformKey]: { ...old?.[platformKey], [field.key]: value } };
-        return next;
-      });
-      showToast(field.label + ' regenerated locally');
-    } catch (requestError) { setError(requestError.message || 'Local regeneration failed.'); }
-    finally { setRegenerating(''); }
+      const inputs = { ...currentInputs(), platforms: [platformKey] };
+      const currentValue = generated?.[platformKey]?.[field.key];
+      let variation = 1;
+      let draft = buildQuickDraft(inputs, image?.name || '', variation);
+      let candidate = draft?.[platformKey]?.[field.key];
+      while (JSON.stringify(candidate) === JSON.stringify(currentValue) && variation < 7) {
+        variation += 1;
+        draft = buildQuickDraft(inputs, image?.name || '', variation);
+        candidate = draft?.[platformKey]?.[field.key];
+      }
+      if (candidate === undefined) throw new Error('Could not create an alternative for this field.');
+      if (JSON.stringify(candidate) === JSON.stringify(currentValue) && typeof candidate === 'string') {
+        candidate = candidate + '\n\nAlternative angle: keep the message concise, relevant, and helpful to the intended audience.';
+      }
+      setGenerated((old) => ({
+        ...old,
+        [platformKey]: { ...old?.[platformKey], [field.key]: candidate },
+      }));
+      showToast(field.label + ' updated');
+    } catch (requestError) {
+      setError(requestError.message || 'Could not update this field.');
+    } finally {
+      setRegenerating('');
+    }
   };
 
     const copyText = async (text, label = 'Copied to clipboard') => {
@@ -330,7 +403,7 @@ export default function App() {
         {nav.map((item) => { const Icon = item.icon; return <button key={item.key} className={page === item.key || (page === 'results' && item.key === 'generator') ? 'nav-item active' : 'nav-item'} onClick={() => { setPage(item.key); setError(''); }}><Icon size={18} /><span>{item.label}</span>{item.count > 0 && <small>{item.count}</small>}</button>; })}
       </nav>
       <div className="sidebar-spacer" />
-      <div className={'api-status ' + apiStatus}><span className="status-dot" /><div><b>{apiStatus === 'ready' ? 'Free AI available' : apiStatus === 'loading' ? 'Loading local AI' : apiStatus === 'error' ? 'Model load failed' : 'Checking browser'}</b><small>{apiStatus === 'ready' ? 'Runs on device CPU/WASM' : apiStatus === 'loading' ? 'Preparing the model…' : apiStatus === 'error' ? 'Check connection and refresh' : 'Checking local model'}</small></div></div>
+      <div className="api-status ready"><span className="status-dot" /><div><b>Instant mode ready</b><small>No API key or model download</small></div></div>
       <div className="sidebar-foot"><span>BUILT FOR CREATORS</span><span>v1.0 · CaptionCraft</span></div>
     </aside>
 
@@ -363,7 +436,7 @@ export default function App() {
               <div className="form-field"><label className="field-label" htmlFor="audience">TARGET AUDIENCE</label><input id="audience" className="text-input" value={profile.audience} onChange={(event) => setProfile({ ...profile, audience: event.target.value })} placeholder="Who is this content for?" /></div>
               <div className="mini-brand-note"><Sparkles size={15} /><span>Profile details save automatically in this browser.</span></div>
             </section>
-            <section className="surface generate-card"><div className="generate-spark"><Sparkles size={23} /></div><h2>Ready to create?</h2><p>Your AI copywriter will create platform-specific content with SEO keywords and publishing-ready structure.</p><div className="generate-summary"><span><Check size={14} /> No keyword stuffing</span><span><Check size={14} /> Platform-aware limits</span><span><Check size={14} /> Your brand voice</span></div><button className="primary-button generate-button" type="submit" disabled={busy}>{busy ? <><LoaderCircle className="spin" size={17} /> Generating your content…</> : <><Sparkles size={17} /> Generate content <ArrowRight size={16} /></>}</button><div className="local-ai-note"><Check size={14} /><span><b>No API key. No subscription.</b><small>AI runs in your browser. First use downloads model files and needs WebGPU.</small></span></div>{busy && modelProgress.text && <div className="model-progress" role="status"><div className="model-progress-head"><span>{modelProgress.text}</span><b>{modelProgress.percent}%</b></div><div className="model-progress-track"><span style={{ width: modelProgress.percent + '%' }} /></div></div>}{busy && imageModelStatus && <div className="model-progress image-model-status" role="status">{imageModelStatus}</div>}<small className="generate-footnote">AI output may need a final fact-check before publishing.</small></section>
+            <section className="surface generate-card"><div className="generate-spark"><Sparkles size={23} /></div><h2>Ready to create?</h2><p>Create an editable first draft instantly. No model download, GPU, API key, or paid subscription needed.</p><div className="generate-summary"><span><Check size={14} /> Instant draft generation</span><span><Check size={14} /> Platform-specific sections</span><span><Check size={14} /> Your brand settings</span></div><button className="primary-button generate-button" type="submit" disabled={busy}>{busy ? <><LoaderCircle className="spin" size={17} /> Creating draft…</> : <><Sparkles size={17} /> Generate content <ArrowRight size={16} /></>}</button><div className="local-ai-note"><Check size={14} /><span><b>Instant mode — no API key needed</b><small>Uses lightweight editable text templates. No AI model download is required; customize the drafts before posting.</small></span></div><small className="generate-footnote">Review facts, links, and image details before publishing.</small></section>
           </div>
         </form>
         {error && <div className="error-banner" role="alert"><X size={17} /><span>{error}</span><button type="button" onClick={() => setError('')}><X size={14} /></button></div>}
